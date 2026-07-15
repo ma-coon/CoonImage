@@ -25,7 +25,7 @@ object CrashLog {
             sb.append("堆栈:\n")
             t.stackTraceToString().lineSequence().take(40).forEach { sb.append("  ").append(it).append('\n') }
             sb.append("\n----- 以上为最近一次崩溃，下面是更早的记录 -----\n\n")
-            val dir = Storage.getCoonDir()
+            val dir = Storage.getCoonDir(context)
             val file = File(dir, "crash.log")
             val old = if (file.exists()) file.readText() else ""
             file.writeText(sb.toString() + old)

@@ -89,7 +89,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val bytes = client.download(url)
                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                val file = Storage.saveBytes(bytes, "coon_${System.currentTimeMillis()}.png")
+                val file = Storage.saveBytes(getApplication(), bytes, "coon_${System.currentTimeMillis()}.png")
                 _state.update {
                     it.copy(
                         isProcessing = false,

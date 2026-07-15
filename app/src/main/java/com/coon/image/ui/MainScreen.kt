@@ -1,8 +1,6 @@
 package com.coon.image.ui
 
 import android.Manifest
-import android.content.Context
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -17,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -51,26 +48,9 @@ fun MainScreen(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var cameraGranted by remember { mutableStateOf(Permissions.cameraGranted(context)) }
-    var storageDenied by remember { mutableStateOf(false) }
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         cameraGranted = it
-    }
-    val storageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.process() else storageDenied = true
-    }
-    val manageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Permissions.storageGranted(context)) viewModel.process() else storageDenied = true
-    }
-
-    fun ensureStorageThenProcess() {
-        if (Permissions.storageGranted(context)) {
-            viewModel.process()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            manageLauncher.launch(Permissions.manageStorageIntent(context))
-        } else {
-            storageLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        }
     }
 
     CoonTheme {
@@ -90,26 +70,9 @@ fun MainScreen(viewModel: MainViewModel) {
                     state = state,
                     onKeywordChange = viewModel::setKeyword,
                     onModelChange = viewModel::setModel,
-                    onProcess = { ensureStorageThenProcess() },
+                    onProcess = { viewModel.process() },
                     onRetake = viewModel::reset
                 )
-        }
-
-        if (storageDenied) {
-            AlertDialog(
-                onDismissRequest = { storageDenied = false },
-                title = { Text("需要存储权限") },
-                text = { Text("把图片保存到根目录 CoonImage 需要「所有文件访问」权限，请在设置中授予。") },
-                confirmButton = {
-                    Button(onClick = {
-                        storageDenied = false
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            manageLauncher.launch(Permissions.manageStorageIntent(context))
-                        }
-                    }) { Text("去设置") }
-                },
-                dismissButton = { Button(onClick = { storageDenied = false }) { Text("取消") } }
-            )
         }
     }
 }
@@ -175,7 +138,7 @@ fun EditScreen(
         state.resultBitmap?.let { rb ->
             Text("处理结果：", style = MaterialTheme.typography.titleMedium)
             Image(bitmap = rb.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(260.dp))
-            state.resultPath?.let { p -> Text("已保存：$p", style = MaterialTheme.typography.bodySmall) }
+            state.resultPath?.let { p -> Text("已保存到应用内部 CoonImage 目录：\n$p", style = MaterialTheme.typography.bodySmall) }
         }
         OutlinedButton(onClick = onRetake, modifier = Modifier.fillMaxWidth()) { Text("重新拍照") }
     }
