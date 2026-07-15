@@ -34,6 +34,7 @@ class DashScopeClient(private val apiKey: String) {
 
     private val imageEditUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis"
     private val text2ImageUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
+    private val bgGenUrl = "https://dashscope.aliyuncs.com/api/v1/services/aigc/background-generation/generation/"
     private val taskUrl = "https://dashscope.aliyuncs.com/api/v1/tasks/"
     private val qwenUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
@@ -45,6 +46,18 @@ class DashScopeClient(private val apiKey: String) {
         baseImageB64: String?,
         onLog: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
+        val k = keyword.trim()
+        // 换天空 / 换背景 / 抠图 由 AI 自动分割蒙版（wanx-background-generation-v2），
+        // 不需要我们上传蒙版，效果更精准。其余关键字走下拉选择的模型。
+        val isAutoMask = k.contains("天空") || k.contains("背景") || k.contains("抠图")
+                || k.contains("去背景") || k.contains("扣图")
+        if (isAutoMask) {
+            if (baseImageB64.isNullOrBlank()) throw IOException("该操作需要先用相机拍一张照片")
+            onLog("使用 AI 自动分割蒙版（万相·背景生成）")
+            val refPrompt = buildBgPrompt(k)
+            onLog("背景描述：$refPrompt")
+            return@withContext submitBackgroundGen(refPrompt, baseImageB64, onLog)
+        }
         when (model.endpointKind) {
             EndpointKind.TEXT_TO_IMAGE -> {
                 onLog("调用文生图模型 ${model.id}")
@@ -140,6 +153,43 @@ class DashScopeClient(private val apiKey: String) {
         if (!resp.isSuccessful) throw IOException("提交任务失败($model): $text")
         val taskId = JSONObject(text).getJSONObject("output").getString("task_id")
         onLog("任务已提交，task_id=$taskId，等待处理...")
+        return pollTask(taskId, onLog)
+    }
+
+    /**
+     * 调用万相·背景生成（wanx-background-generation-v2）：AI 自动分割主体并生成新背景，
+     * 无需我们上传蒙版。输入原图(base_image_url) + 背景描述(ref_prompt)。
+     */
+    private suspend fun submitBackgroundGen(
+        refPrompt: String,
+        baseImageB64: String,
+        onLog: (String) -> Unit
+    ): String {
+        val input = JSONObject().apply {
+            put("base_image_url", "data:image/jpeg;base64,$baseImageB64")
+            put("ref_prompt", refPrompt)
+        }
+        val body = JSONObject().apply {
+            put("model", "wanx-background-generation-v2")
+            put("input", input)
+            put(
+                "parameters",
+                JSONObject().apply {
+                    put("n", 1)
+                    put("model_version", "v3")
+                }
+            )
+        }
+        val req = Request.Builder().url(bgGenUrl)
+            .addHeader("Authorization", "Bearer $apiKey")
+            .addHeader("X-DashScope-Async", "enable")
+            .post(body.toString().toRequestBody(jsonMedia))
+            .build()
+        val resp = http.newCall(req).execute()
+        val text = resp.body?.string().orEmpty()
+        if (!resp.isSuccessful) throw IOException("提交背景生成任务失败: $text")
+        val taskId = JSONObject(text).getJSONObject("output").getString("task_id")
+        onLog("任务已提交，task_id=$taskId，AI 正在分割主体并生成背景...")
         return pollTask(taskId, onLog)
     }
 
@@ -247,5 +297,26 @@ fun buildPrompt(keyword: String): String {
         k.contains("去人") || k.contains("去除") || k.contains("路人") || k.contains("无关人员") ->
             "移除照片中除主要人物以外的路人和其他无关人物，并自然、无缝地补全背景。"
         else -> k
+    }
+}
+
+/**
+ * 把「换天空 / 换背景 / 抠图」类关键字映射成 wanx-background-generation-v2 的 ref_prompt
+ * （即“想要的新背景长什么样”）。模型会据此自动分割主体并替换背景。
+ */
+fun buildBgPrompt(keyword: String): String {
+    val k = keyword.trim()
+    return when {
+        k.contains("天空") ->
+            "晴朗明媚的蓝天，飘着蓬松的白云，自然的光影与大气透视"
+        k.contains("抠图") || k.contains("去背景") || k.contains("扣图") ->
+            "干净纯白色背景"
+        // 换背景 / 背景替换：提取“换成/背景”之后的描述作为新背景；没有则退化为原关键字
+        else -> {
+            val cleaned = k.replace(Regex("^(换成|换为|背景换成|背景替换为|背景|换背景)\\s*"), "")
+                .replace(Regex("^(的|成|为)\\s*"), "")
+                .trim()
+            if (cleaned.isBlank()) k else cleaned
+        }
     }
 }

@@ -130,6 +130,12 @@ fun EditScreen(
             modifier = Modifier.fillMaxWidth()
         )
         ModelDropdown(selected = state.selectedModel, onSelect = onModelChange)
+        Text(
+            "提示：输入「换天空 / 换背景 / 抠图」会由 AI 自动分割主体并生成新背景（更精准）；" +
+                    "「换装 / 去除无关人员」等仍走通用图像编辑。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline
+        )
         Button(onClick = onProcess, enabled = !state.isProcessing, modifier = Modifier.fillMaxWidth()) {
             if (state.isProcessing) CircularProgressIndicator(Modifier.size(18.dp)) else Text("开始 AI 处理")
         }
