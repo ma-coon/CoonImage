@@ -3,10 +3,12 @@ package com.coon.image.viewmodel
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.coon.image.data.ApiKeyStore
 import com.coon.image.data.AiModel
+import com.coon.image.data.CrashLog
 import com.coon.image.data.DashScopeClient
 import com.coon.image.data.EndpointKind
 import com.coon.image.data.ModelCatalog
@@ -45,15 +47,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun onCaptured(bitmap: Bitmap) {
-        val b64 = DashScopeClient.bitmapToBase64(bitmap)
-        _state.update {
-            it.copy(
-                capturedBitmap = bitmap,
-                capturedB64 = b64,
-                resultBitmap = null,
-                resultPath = null,
-                error = null
-            )
+        viewModelScope.launch(Dispatchers.IO) {
+            val scaled = DashScopeClient.scaleToMax(bitmap, 1024)
+            val b64 = DashScopeClient.bitmapToBase64(scaled)
+            if (scaled !== bitmap) bitmap.recycle()
+            _state.update {
+                it.copy(
+                    capturedBitmap = scaled,
+                    capturedB64 = b64,
+                    resultBitmap = null,
+                    resultPath = null,
+                    error = null
+                )
+            }
         }
     }
 
@@ -92,8 +98,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         status = "处理完成，已保存到 CoonImage"
                     )
                 }
-            } catch (e: Exception) {
-                _state.update { it.copy(isProcessing = false, error = e.message ?: "处理失败") }
+            } catch (e: Throwable) {
+                Log.e("CoonImage", "process failed", e)
+                CrashLog.write(getApplication(), "process", e)
+                val msg = (e.message ?: e.javaClass.simpleName) + if (e is OutOfMemoryError) "（内存不足，请尝试更小的图片或关闭其他应用）" else ""
+                _state.update { it.copy(isProcessing = false, error = msg) }
             }
         }
     }

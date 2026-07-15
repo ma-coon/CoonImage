@@ -164,6 +164,22 @@ class DashScopeClient(private val apiKey: String) {
     }
 
     companion object {
+        /** 把图片等比缩放到最长边不超过 maxEdge，降低 base64 体积与内存压力。 */
+        fun scaleToMax(bitmap: Bitmap, maxEdge: Int): Bitmap {
+            val w = bitmap.width
+            val h = bitmap.height
+            val longest = maxOf(w, h)
+            if (longest <= maxEdge) return bitmap
+            val ratio = maxEdge.toFloat() / longest
+            val tw = (w * ratio).toInt().coerceAtLeast(1)
+            val th = (h * ratio).toInt().coerceAtLeast(1)
+            return try {
+                Bitmap.createScaledBitmap(bitmap, tw, th, true)
+            } catch (_: Throwable) {
+                bitmap
+            }
+        }
+
         fun bitmapToBase64(bitmap: Bitmap): String {
             val stream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
