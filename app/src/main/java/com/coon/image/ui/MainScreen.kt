@@ -138,7 +138,7 @@ fun EditScreen(
         state.resultBitmap?.let { rb ->
             Text("处理结果：", style = MaterialTheme.typography.titleMedium)
             Image(bitmap = rb.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().height(260.dp))
-            state.resultPath?.let { p -> Text("已保存到应用内部 CoonImage 目录：\n$p", style = MaterialTheme.typography.bodySmall) }
+            state.resultPath?.let { p -> Text("已保存到系统图库「CoonImage」相册：\n$p", style = MaterialTheme.typography.bodySmall) }
         }
         OutlinedButton(onClick = onRetake, modifier = Modifier.fillMaxWidth()) { Text("重新拍照") }
     }

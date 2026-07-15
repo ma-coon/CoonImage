@@ -12,6 +12,7 @@ import com.coon.image.data.CrashLog
 import com.coon.image.data.DashScopeClient
 import com.coon.image.data.EndpointKind
 import com.coon.image.data.ModelCatalog
+import com.coon.image.util.MediaStoreSaver
 import com.coon.image.util.Storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -89,13 +90,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 val bytes = client.download(url)
                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                val file = Storage.saveBytes(getApplication(), bytes, "coon_${System.currentTimeMillis()}.png")
+                val location = try {
+                    MediaStoreSaver.saveBytes(getApplication(), bytes, "coon_${System.currentTimeMillis()}.png")
+                } catch (e: Throwable) {
+                    Log.w("CoonImage", "MediaStore 保存失败，回退内部存储: ${e.message}")
+                    Storage.saveBytes(getApplication(), bytes, "coon_${System.currentTimeMillis()}.png").absolutePath
+                }
                 _state.update {
                     it.copy(
                         isProcessing = false,
                         resultBitmap = bmp,
-                        resultPath = file.absolutePath,
-                        status = "处理完成，已保存到 CoonImage"
+                        resultPath = location,
+                        status = "处理完成，已保存到图库 CoonImage 相册"
                     )
                 }
             } catch (e: Throwable) {
