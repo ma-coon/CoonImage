@@ -1,6 +1,10 @@
 package com.coon.image.data
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -44,18 +48,18 @@ class DashScopeClient(private val apiKey: String) {
         when (model.endpointKind) {
             EndpointKind.TEXT_TO_IMAGE -> {
                 onLog("调用文生图模型 ${model.id}")
-                submitAndWait(text2ImageUrl, model.id, buildPrompt(keyword), null, onLog)
+                submitAndWait(text2ImageUrl, model.id, buildPrompt(keyword), keyword, null, onLog)
             }
             EndpointKind.QWEN_ROUTE -> {
                 onLog("通义千问理解关键字中...")
                 val refined = refineWithQwen(keyword, onLog)
                 onLog("通义千问生成指令：$refined")
                 onLog("调用图像编辑模型...")
-                submitAndWait(imageEditUrl, "wanx-x-painting", refined, baseImageB64, onLog)
+                submitAndWait(imageEditUrl, "wanx-x-painting", refined, keyword, baseImageB64, onLog)
             }
             EndpointKind.IMAGE_EDIT -> {
                 onLog("调用图像编辑模型 ${model.id}")
-                submitAndWait(imageEditUrl, model.id, buildPrompt(keyword), baseImageB64, onLog)
+                submitAndWait(imageEditUrl, model.id, buildPrompt(keyword), keyword, baseImageB64, onLog)
             }
         }
     }
@@ -98,13 +102,20 @@ class DashScopeClient(private val apiKey: String) {
         url: String,
         model: String,
         prompt: String,
+        keyword: String,
         baseImageB64: String?,
         onLog: (String) -> Unit
     ): String {
+        // 图像编辑接口（wanx-x-painting）属于局部重绘，必须提供编辑区域蒙版：
+        // 蒙版中白色=要修改的区域，黑色=保留的区域。
+        val maskB64 = if (!baseImageB64.isNullOrBlank()) generateMaskBase64(baseImageB64, keyword) else null
         val input = JSONObject().apply {
             put("prompt", prompt)
             if (!baseImageB64.isNullOrBlank()) {
                 put("base_image_url", "data:image/jpeg;base64,$baseImageB64")
+            }
+            if (!maskB64.isNullOrBlank()) {
+                put("mask_image_url", "data:image/png;base64,$maskB64")
             }
         }
         val body = JSONObject().apply {
@@ -184,6 +195,38 @@ class DashScopeClient(private val apiKey: String) {
             val stream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
             return Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+        }
+
+        /**
+         * 生成 wanx-x-painting（局部重绘）所需的编辑区域蒙版。
+         * 白色=要修改的区域，黑色=保留的区域。
+         * - 默认：整张白（修改整图）。
+         * - 含「天空」关键字：只把上半部分涂白（编辑天空），下半部分涂黑（保留地面/人物）。
+         * 蒙版尺寸与原图一致，输出为 PNG base64。
+         */
+        fun generateMaskBase64(baseImageB64: String, keyword: String): String? {
+            return try {
+                val decoded = Base64.decode(baseImageB64, Base64.NO_WRAP)
+                val src = BitmapFactory.decodeByteArray(decoded, 0, decoded.size) ?: return null
+                val w = src.width
+                val h = src.height
+                val mask = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(mask)
+                canvas.drawColor(Color.WHITE)
+                val k = keyword.trim()
+                if (k.contains("天空")) {
+                    // 只编辑上半部分（天空），下半部分（地面/人物）保留
+                    val keepFromY = (h * 0.45f).toInt()
+                    val paint = Paint().apply { color = Color.BLACK }
+                    canvas.drawRect(0f, keepFromY.toFloat(), w.toFloat(), h.toFloat(), paint)
+                }
+                val stream = ByteArrayOutputStream()
+                mask.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                mask.recycle()
+                Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+            } catch (_: Throwable) {
+                null
+            }
         }
     }
 }
